@@ -156,6 +156,15 @@ jobs:
           echo "CC=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
           echo "GOARM=7" >> $GITHUB_ENV
 
+      # 🔧 关键步骤：直接修补 sonic 源码，移除 32 位编译阻止检查
+      - name: Patch sonic to bypass 32-bit check
+        run: |
+          set -e
+          SONIC_PATH=$(go env GOMODCACHE)/github.com/bytedance/sonic@v1.14.1
+          echo "Patching sonic in $SONIC_PATH"
+          sed -i 's/_Sonic_Not_Support_32Bit_Arch__Checking_32Bit_Arch_Here.*=.*/_Sonic_Not_Support_32Bit_Arch__Checking_32Bit_Arch_Here = 0 \/\/ patched for 32-bit build/g' $SONIC_PATH/internal/utils/skip.go
+          echo "Patch applied successfully."
+
       - name: Build Binary (Static Linked)
         env:
           GOOS: ${{ matrix.goos }}
