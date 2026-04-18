@@ -12,6 +12,7 @@ env:
   NT_SIGN_URL: ${{ secrets.NT_SIGN_URL }}
 
 jobs:
+  # 检查近 24 小时是否有新提交，若无则跳过后续任务
   commit-num-check:
     name: Check Commit Num
     runs-on: ubuntu-latest
@@ -30,39 +31,42 @@ jobs:
     outputs:
       commit-count: ${{ steps.get-commits.outputs.NEW_COMMIT_COUNT }}
 
+  # 下载内置数据文件（如帮助文档、默认牌堆等）
   resources-download:
     name: Download Related Resources
     runs-on: ubuntu-latest
     needs: commit-num-check
     if: ${{ needs.commit-num-check.outputs.commit-count > 0 }}
     steps:
-      - name: Code
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Upload Documents
+
+      - name: Upload Documents Artifact
         uses: actions/upload-artifact@v4
         with:
           name: documents
           path: ./sealdice-builtins/data
 
+  # 构建前端 UI 静态文件
   ui-build:
     name: Build UI
     runs-on: ubuntu-latest
     needs: commit-num-check
     if: ${{ needs.commit-num-check.outputs.commit-count > 0 }}
     steps:
-      - name: Code
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Get Commit ID
+      - name: Get UI Commit ID
         run: |
           cd sealdice-ui
-          echo "UI_CID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV;
+          echo "UI_CID=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Cache ui dist get
+      - name: Cache UI Dist
         id: cache-ui-dist
         uses: actions/cache@v4
         env:
@@ -72,18 +76,18 @@ jobs:
           key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ env.UI_CID }}
 
       - if: ${{ steps.cache-ui-dist.outputs.cache-hit == 'true' }}
-        name: Show cache
+        name: Show Cache (optional)
         continue-on-error: true
         run: ls ./sealdice-ui/dist
 
-      - name: Install Pnpm
+      - name: Install pnpm
         uses: pnpm/action-setup@v4
         if: ${{ steps.cache-ui-dist.outputs.cache-hit != 'true' }}
         with:
           version: 10
           run_install: false
 
-      - name: Install Node
+      - name: Install Node.js
         uses: actions/setup-node@v4
         if: ${{ steps.cache-ui-dist.outputs.cache-hit != 'true' }}
         with:
@@ -99,12 +103,13 @@ jobs:
         working-directory: ./sealdice-ui
         run: pnpm run build-only
 
-      - name: Upload UI
+      - name: Upload UI Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sealdice-ui
           path: ./sealdice-ui/dist
 
+  # 构建 Linux ARMv7 核心二进制（静态链接）
   core-build:
     name: Build Core (linux/armv7)
     runs-on: ubuntu-latest
@@ -115,18 +120,16 @@ jobs:
         goarch: [arm]
       fail-fast: true
     steps:
-      - name: Apt-get Update
+      - name: Update apt cache
         run: sudo apt-get update
 
-      - name: Code
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           submodules: true
 
-      - name: Install Cross-compiler for Linux Armv7 Musl
-        run: |
-          wget https://github.com/sealdice/tooolchain/releases/download/1/arm-linux-musleabihf-cross.tgz
-          tar zxf arm-linux-musleabihf-cross.tgz
+      - name: Install ARMv7 Cross Compiler (GCC)
+        run: sudo apt-get install -y gcc-arm-linux-gnueabihf
 
       - name: Install Go
         uses: actions/setup-go@v5
@@ -134,36 +137,36 @@ jobs:
           go-version: "1.25.7"
           cache-dependency-path: sealdice-core/go.sum
 
-      - name: Install Dependencies
+      - name: Install Go Dependencies
         working-directory: ./sealdice-core
         run: |
           go mod tidy
           go get .
 
-      - name: Get UI Resources
+      - name: Download UI Resources
         uses: actions/download-artifact@v4
         with:
           name: sealdice-ui
           path: ./sealdice-core/static/frontend
 
-      - name: Get current time
+      - name: Get Current Time (Beijing Time)
         uses: Kaven-Universe/github-action-current-date-time@v1
         id: currentTime
         with:
           format: YYYYMMDD
-          timezone-offset: -480
+          timezone-offset: -480   # UTC+8
 
-      - name: Set Env
+      - name: Set Build Environment Variables
         working-directory: ./sealdice-core
         env:
           CUR_TIME: ${{ steps.currentTime.outputs.time }}
         run: |
-          echo "PROJECT_VERSION_C=${CUR_TIME}-${COMMIT_ID::7}" >> $GITHUB_ENV;
-          echo "BINARY_NAME=sealdice-core" >> $GITHUB_ENV;
-          echo "CC=$(readlink -f ../arm-linux-musleabihf-cross/bin/arm-linux-musleabihf-gcc)" >> $GITHUB_ENV;
-          echo "GOARM=7" >> $GITHUB_ENV;
+          echo "PROJECT_VERSION_C=${CUR_TIME}-${COMMIT_ID::7}" >> $GITHUB_ENV
+          echo "BINARY_NAME=sealdice-core" >> $GITHUB_ENV
+          echo "CC=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
+          echo "GOARM=7" >> $GITHUB_ENV
 
-      - name: Build Binary (linux musl)
+      - name: Build Binary (Static Linked)
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
@@ -176,7 +179,7 @@ jobs:
           SEAL_SIGN_V3_URL: ${{ secrets.SEAL_SIGN_V3_URL }}
         working-directory: ./sealdice-core
         run: |
-          go build -tags musl -o "output/$BINARY_NAME" -trimpath \
+          go build -o "output/$BINARY_NAME" -trimpath \
             -ldflags "-s -w -linkmode external -extldflags '-static' \
             -X sealdice-core/dice.VERSION_PRERELEASE=-dev \
             -X sealdice-core/dice.VERSION_BUILD_METADATA=+${CUR_TIME}.${COMMIT_ID::7} \
@@ -186,19 +189,20 @@ jobs:
             -X 'sealdice-core/dice.SealSignClientPrivateKey=${SEAL_SIGN_PRIVATE_KEY}' \
             -X 'sealdice-core/dice.SealSignV3Url=${SEAL_SIGN_V3_URL}'" .
 
-      - name: Run UPX
+      - name: Compress Binary with UPX
         uses: crazy-max/ghaction-upx@v3
         with:
           version: latest
           files: ./sealdice-core/output/${{ env.BINARY_NAME }}
           args: -9 -fq
 
-      - name: Upload Core
+      - name: Upload Core Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sealdice-core_${{ env.PROJECT_VERSION_C }}_linux_arm
           path: ./sealdice-core/output
 
+  # 将核心程序与内置数据打包为 .tar.gz
   pack:
     name: Pack (linux/armv7)
     runs-on: ubuntu-latest
@@ -206,7 +210,7 @@ jobs:
       - resources-download
       - core-build
     steps:
-      - name: Get current time
+      - name: Get Current Time
         uses: Kaven-Universe/github-action-current-date-time@v1
         id: currentTime
         with:
@@ -216,36 +220,35 @@ jobs:
       - name: Set Env
         env:
           CUR_TIME: ${{ steps.currentTime.outputs.time }}
-        run: echo "PROJECT_VERSION_C=${CUR_TIME}-${COMMIT_ID::7}" >> $GITHUB_ENV;
+        run: echo "PROJECT_VERSION_C=${CUR_TIME}-${COMMIT_ID::7}" >> $GITHUB_ENV
 
-      - name: Get Documents
+      - name: Download Documents
         uses: actions/download-artifact@v4
         with:
           name: documents
           path: ./data
 
-      - name: Get Core
+      - name: Download Core Binary
         uses: actions/download-artifact@v4
         with:
           name: sealdice-core_${{ env.PROJECT_VERSION_C }}_linux_arm
           path: .
 
-      - name: Set Execute Attribute
+      - name: Set Execute Permission
         run: chmod +x ./sealdice-core
 
-      - name: Compress
+      - name: Create Tarball
         env:
           GOOS: linux
           GOARCH: arm
-          CUR_TIME: ${{ steps.currentTime.outputs.time }}
         run: |
-          mkdir -p sealdice_temp
-          mv sealdice-core data sealdice_temp/
-          cd sealdice_temp
+          mkdir -p sealdice_pkg
+          mv sealdice-core data sealdice_pkg/
+          cd sealdice_pkg
           tar -zcvf ../sealdice_${PROJECT_VERSION_C}_${GOOS}_${GOARCH}.tar.gz .
-          echo "DIST=sealdice_${PROJECT_VERSION_C}_${GOOS}_${GOARCH}.tar.gz" >> $GITHUB_ENV;
+          echo "DIST=sealdice_${PROJECT_VERSION_C}_${GOOS}_${GOARCH}.tar.gz" >> $GITHUB_ENV
 
-      - name: Upload Package
+      - name: Upload Final Package Artifact
         uses: actions/upload-artifact@v4
         with:
           name: sealdice_${{ env.PROJECT_VERSION_C }}_linux_arm
