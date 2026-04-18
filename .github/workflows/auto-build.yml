@@ -156,14 +156,24 @@ jobs:
           echo "CC=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
           echo "GOARM=7" >> $GITHUB_ENV
 
-      # 🔧 关键步骤：直接修补 sonic 源码，移除 32 位编译阻止检查
-      - name: Patch sonic to bypass 32-bit check
+      # 📦 使用 vendor 模式，将依赖下载到本地并可修改
+      - name: Vendor dependencies
+        working-directory: ./sealdice-core
         run: |
-          set -e
-          SONIC_PATH=$(go env GOMODCACHE)/github.com/bytedance/sonic@v1.14.1
-          echo "Patching sonic in $SONIC_PATH"
-          sed -i 's/_Sonic_Not_Support_32Bit_Arch__Checking_32Bit_Arch_Here.*=.*/_Sonic_Not_Support_32Bit_Arch__Checking_32Bit_Arch_Here = 0 \/\/ patched for 32-bit build/g' $SONIC_PATH/internal/utils/skip.go
-          echo "Patch applied successfully."
+          go mod vendor
+
+      # 🔧 修补 sonic 库的 32 位检查代码
+      - name: Patch sonic in vendor
+        working-directory: ./sealdice-core
+        run: |
+          SONIC_SKIP_FILE="vendor/github.com/bytedance/sonic/internal/utils/skip.go"
+          if [ -f "$SONIC_SKIP_FILE" ]; then
+            sed -i 's/_Sonic_Not_Support_32Bit_Arch__Checking_32Bit_Arch_Here.*=.*/_Sonic_Not_Support_32Bit_Arch__Checking_32Bit_Arch_Here = 0 \/\/ patched for 32-bit/g' "$SONIC_SKIP_FILE"
+            echo "Patched $SONIC_SKIP_FILE"
+          else
+            echo "Error: $SONIC_SKIP_FILE not found!"
+            exit 1
+          fi
 
       - name: Build Binary (Static Linked)
         env:
@@ -178,7 +188,7 @@ jobs:
           SEAL_SIGN_V3_URL: ${{ secrets.SEAL_SIGN_V3_URL }}
         working-directory: ./sealdice-core
         run: |
-          go build -tags=sonic_std -o "output/$BINARY_NAME" -trimpath \
+          go build -mod=vendor -tags=sonic_std -o "output/$BINARY_NAME" -trimpath \
             -ldflags "-s -w -linkmode external -extldflags '-static' \
             -X sealdice-core/dice.VERSION_PRERELEASE=-dev \
             -X sealdice-core/dice.VERSION_BUILD_METADATA=+${CUR_TIME}.${COMMIT_ID::7} \
