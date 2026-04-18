@@ -12,7 +12,6 @@ env:
   NT_SIGN_URL: ${{ secrets.NT_SIGN_URL }}
 
 jobs:
-  # 检查近 24 小时是否有新提交，若无则跳过后续任务
   commit-num-check:
     name: Check Commit Num
     runs-on: ubuntu-latest
@@ -31,7 +30,6 @@ jobs:
     outputs:
       commit-count: ${{ steps.get-commits.outputs.NEW_COMMIT_COUNT }}
 
-  # 下载内置数据文件
   resources-download:
     name: Download Related Resources
     runs-on: ubuntu-latest
@@ -49,7 +47,6 @@ jobs:
           name: documents
           path: ./sealdice-builtins/data
 
-  # 构建前端 UI 静态文件
   ui-build:
     name: Build UI
     runs-on: ubuntu-latest
@@ -109,7 +106,6 @@ jobs:
           name: sealdice-ui
           path: ./sealdice-ui/dist
 
-  # 构建 Linux ARMv7 核心二进制（静态链接）
   core-build:
     name: Build Core (linux/armv7)
     runs-on: ubuntu-latest
@@ -136,13 +132,6 @@ jobs:
         with:
           go-version: "1.25.7"
           cache-dependency-path: sealdice-core/go.sum
-
-      # 🔁 关键修复：将 sonic 替换为 json-iterator（兼容 32 位且无 internal 包问题）
-      - name: Replace sonic with json-iterator for 32-bit compatibility
-        working-directory: ./sealdice-core
-        run: |
-          go mod edit -replace github.com/bytedance/sonic=github.com/json-iterator/go@latest
-          go mod tidy
 
       - name: Download UI Resources
         uses: actions/download-artifact@v4
@@ -180,7 +169,7 @@ jobs:
           SEAL_SIGN_V3_URL: ${{ secrets.SEAL_SIGN_V3_URL }}
         working-directory: ./sealdice-core
         run: |
-          go build -o "output/$BINARY_NAME" -trimpath \
+          go build -tags=sonic_std -o "output/$BINARY_NAME" -trimpath \
             -ldflags "-s -w -linkmode external -extldflags '-static' \
             -X sealdice-core/dice.VERSION_PRERELEASE=-dev \
             -X sealdice-core/dice.VERSION_BUILD_METADATA=+${CUR_TIME}.${COMMIT_ID::7} \
@@ -203,7 +192,6 @@ jobs:
           name: sealdice-core_${{ env.PROJECT_VERSION_C }}_linux_arm
           path: ./sealdice-core/output
 
-  # 将核心程序与内置数据打包为 .tar.gz
   pack:
     name: Pack (linux/armv7)
     runs-on: ubuntu-latest
