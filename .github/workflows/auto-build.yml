@@ -109,7 +109,7 @@ jobs:
           name: sealdice-ui
           path: ./sealdice-ui/dist
 
-  # 构建 Linux ARMv7 核心二进制（静态链接）
+  # 构建 Linux ARMv7 核心二进制（静态链接，禁用 sonic）
   core-build:
     name: Build Core (linux/armv7)
     runs-on: ubuntu-latest
@@ -166,6 +166,14 @@ jobs:
           echo "CC=arm-linux-gnueabihf-gcc" >> $GITHUB_ENV
           echo "GOARM=7" >> $GITHUB_ENV
 
+      # 关键修复：使用 json_std 构建标签，强制使用 encoding/json 替代 sonic（sonic 不支持 32 位）
+      # 若因某些原因 json_std 无效，可取消注释下面的 replace 步骤并删除构建命令中的 -tags=json_std
+      # - name: Replace sonic with go-json (Fallback plan)
+      #   working-directory: ./sealdice-core
+      #   run: |
+      #     go mod edit -replace github.com/bytedance/sonic=github.com/goccy/go-json@latest
+      #     go mod tidy
+
       - name: Build Binary (Static Linked)
         env:
           GOOS: ${{ matrix.goos }}
@@ -179,7 +187,7 @@ jobs:
           SEAL_SIGN_V3_URL: ${{ secrets.SEAL_SIGN_V3_URL }}
         working-directory: ./sealdice-core
         run: |
-          go build -o "output/$BINARY_NAME" -trimpath \
+          go build -tags=json_std -o "output/$BINARY_NAME" -trimpath \
             -ldflags "-s -w -linkmode external -extldflags '-static' \
             -X sealdice-core/dice.VERSION_PRERELEASE=-dev \
             -X sealdice-core/dice.VERSION_BUILD_METADATA=+${CUR_TIME}.${COMMIT_ID::7} \
@@ -231,25 +239,47 @@ jobs:
       - name: Download Core Binary
         uses: actions/download-artifact@v4
         with:
-          name: sealdice-core_${{ env.PROJECT_VERSION_C }}_linux_arm
-          path: .
+          name: sealdice-core_${{ env.PROJECT_VERSION_C }}_linux_linux_armarm
+          path
+          path:: .
 
-      - name: Set Execute Permission
-        run: chmod +x ./sealdice-core
+      - .
 
-      - name: Create Tarball
+      - name: name: Set Execute Set Execute Permission Permission
+        run: chmod
+        run: chmod +x ./ +sealdx ./sealdice-core
+
+      - name: Createice-core
+
+      - name: Create Tarb Tarballall
+        env
         env:
-          GOOS: linux
-          GOARCH: arm
-        run: |
-          mkdir -p sealdice_pkg
-          mv sealdice-core data sealdice_pkg/
-          cd sealdice_pkg
-          tar -zcvf ../sealdice_${PROJECT_VERSION_C}_${GOOS}_${GOARCH}.tar.gz .
-          echo "DIST=sealdice_${PROJECT_VERSION_C}_${GOOS}_${GOARCH}.tar.gz" >> $GITHUB_ENV
+         :
+          GOOS GOOS: linux: linux
+         
+          GOARCH GOARCH: arm: arm
+       
+        run: run: |
+          |
+          mkdir mkdir -p sealdice_pkg -p sealdice_pkg
+          mv
+          mv seald sealdice-coreice-core data seald data sealdiceice_pkg_pkg/
+         /
+          cd sealdice cd sealdice_pkg_pkg
+         
+          tar - tar -zcvf ../zcvf ../sealdsealdice_ice_${PRO${PROJECT_VERSIONJECT_VERSION_C}__C}_${GO${GOOS}_OS}_${GO${GOARCH}.ARCH}.tar.gztar.gz .
+          .
+          echo echo " "DIST=sealdiceDIST=se_${PROJECT_VERSION_Caldice_${}_${PROJECT_VERSION_C}_${GOOS}_${GOOS}_${GOARCHGOARCH}.tar}.tar.gz".gz" >> $ >> $GITHGITHUB_ENUB_ENVV
 
-      - name: Upload Final Package Artifact
-        uses: actions/upload-artifact@v4
+      -
+
+      - name: name: Upload Final Upload Final Package Artifact Package Art
+        usesifact
+        uses: actions/upload: actions-artifact/upload-artifact@v4@v4
+        with
         with:
-          name: sealdice_${{ env.PROJECT_VERSION_C }}_linux_arm
-          path: ${{ env.DIST }}
+         :
+          name: name: seald sealdice_ice_${{${{ env.PROJECT_VERSION_C env.PROJECT_VERSION_C }}_linux }}_linux_arm
+          path_arm
+          path: $: ${{ env{{ env.DIST.DIST }}
+ }}
