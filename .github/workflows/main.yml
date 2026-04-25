@@ -1,0 +1,47 @@
+name: Build SealDice for ARMv7
+
+on:
+  workflow_dispatch:          # 允许手动触发
+  push:
+    branches: [ "main" ]     # 推送到 main 分支时自动构建（可根据需要修改）
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. 检出代码（含前端子模块）
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # 2. 准备前端静态文件（直接从官方发布包中提取，避免在 CI 中编译前端）
+      - name: Fetch frontend static files
+        run: |
+          # 获取最新的 release 下载链接（以 linux amd64 包为例，主要拿 static 目录）
+          LATEST_URL=$(curl -s https://api.github.com/repos/sealdice/sealdice-build/releases/latest | grep "browser_download_url.*linux_amd64.tar.gz" | cut -d '"' -f 4)
+          wget -O seal.tar.gz "$LATEST_URL"
+          tar -xzf seal.tar.gz
+          # 将解压出的 static 目录复制到代码根目录
+          cp -r sealdice-core/static .
+          rm -rf seal.tar.gz sealdice-core
+
+      # 3. 设置 Go 环境
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'   # 海豹需要 1.22+
+
+      # 4. 交叉编译 ARMv7 二进制
+      - name: Build for armv7
+        run: |
+          cd sealdice-core
+          go mod download
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=7 go build -o ../sealdice-core-armv7 .
+
+      # 5. 上传编译产物
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sealdice-core-armv7
+          path: sealdice-core-armv7
